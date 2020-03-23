@@ -314,8 +314,8 @@ public final class TsExtractor implements Extractor {
         tsPacketBuffer.setPosition(endOfPacket);
         return RESULT_CONTINUE;
       } else if (continuityCounter != ((previousCounter + 1) & 0xF)) {
-        // Discontinuity found.
-        payloadReader.seek();
+        // Discontinuity found. Exoplayer is expecting continuous stream but the FF stream is not continuous.
+//        payloadReader.seek();
       }
     }
 

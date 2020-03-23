@@ -35,6 +35,7 @@ import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.C.ContentType;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.PlaybackPreparer;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.RenderersFactory;
@@ -46,6 +47,11 @@ import com.google.android.exoplayer2.drm.ExoMediaCrypto;
 import com.google.android.exoplayer2.drm.FrameworkMediaDrm;
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback;
 import com.google.android.exoplayer2.drm.MediaDrmCallback;
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
+import com.google.android.exoplayer2.extractor.Extractor;
+import com.google.android.exoplayer2.extractor.ExtractorsFactory;
+import com.google.android.exoplayer2.extractor.ts.DefaultTsPayloadReaderFactory;
+import com.google.android.exoplayer2.extractor.ts.TsExtractor;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer.DecoderInitializationException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil.DecoderQueryException;
 import com.google.android.exoplayer2.offline.DownloadHelper;
@@ -77,6 +83,7 @@ import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.util.ErrorMessageProvider;
 import com.google.android.exoplayer2.util.EventLogger;
+import com.google.android.exoplayer2.util.Log;
 import com.google.android.exoplayer2.util.Util;
 import java.lang.reflect.Constructor;
 import java.net.CookieHandler;
@@ -209,7 +216,9 @@ public class PlayerActivity extends AppCompatActivity
       startPosition = savedInstanceState.getLong(KEY_POSITION);
     } else {
       DefaultTrackSelector.ParametersBuilder builder =
-          new DefaultTrackSelector.ParametersBuilder(/* context= */ this);
+          new DefaultTrackSelector.ParametersBuilder(/* context= */ this).setExceedRendererCapabilitiesIfNecessary(true).setExceedVideoConstraintsIfNecessary(true)
+              // Disable audio track rendering in order to avoid any synchronization issues with a fast-forward stream.
+              .setRendererDisabled(1, true);
       boolean tunneling = intent.getBooleanExtra(TUNNELING_EXTRA, false);
       if (Util.SDK_INT >= 21 && tunneling) {
         builder.setTunnelingAudioSessionId(C.generateAudioSessionIdV21(/* context= */ this));
@@ -395,6 +404,8 @@ public class PlayerActivity extends AppCompatActivity
       player.seekTo(startWindow, startPosition);
     }
     player.prepare(mediaSource, !haveStartPosition, false);
+    // Match playback speed to stream
+    player.setPlaybackParameters(new PlaybackParameters(15));
     updateButtonVisibility();
   }
 
@@ -528,7 +539,15 @@ public class PlayerActivity extends AppCompatActivity
             .setDrmSessionManager(drmSessionManager)
             .createMediaSource(uri);
       case C.TYPE_OTHER:
-        return new ProgressiveMediaSource.Factory(dataSourceFactory)
+        ExtractorsFactory tsOnly = () -> {
+          int tsMode = TsExtractor.MODE_SINGLE_PMT;
+          int tsFlags = DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES;
+          tsFlags = tsFlags | DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS;
+
+          TsExtractor tsExtractor = new TsExtractor(tsMode, tsFlags);
+          return new Extractor[] {tsExtractor};
+        };
+        return new ProgressiveMediaSource.Factory(dataSourceFactory, tsOnly)
             .setDrmSessionManager(drmSessionManager)
             .createMediaSource(uri);
       default:
